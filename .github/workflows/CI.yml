@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    # Publish `master` as Docker `latest` image.
+    branches:
+      - '**'
+      - '!master'
+
+    # Publish `v1.2.3` tags as releases.
+    tags:
+      - v*
+
+  # Run tests for any PRs.
+  pull_request:
+
+jobs:
+
+  build:
+    
+    runs-on: ubuntu-latest
+    # if: github.event_name == 'push'
+
+    steps:
+    - name: checkout code
+      uses: actions/checkout@v2
+
+    - name: Prep Configs
+      run: | 
+        make _prep-env-ci
+      env:
+        REACT_APP_DOMAIN: ${{ secrets.REACT_APP_DOMAIN }}
+        REACT_APP_HOSTED_ZONE_NAME: ${{ secrets.REACT_APP_HOSTED_ZONE_NAME }}
+        REACT_APP_HOSTED_ZONE_ID: ${{ secrets.REACT_APP_HOSTED_ZONE_ID }}
+
+    - uses: satackey/action-docker-layer-caching@v0.0.11
+      # Ignore the failure of a step and avoid terminating the job.
+      continue-on-error: true
+
+    - name: Cache node modules
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }} #Include package lock in name so on change cache is invalidated
+        restore-keys: npm-
+
+    - name: Install
+      run: |
+        make install
+
+    - name: Frontend Unit Tests
+      id: frontend_unit_tests
+      run: make test-frontend-ci
+      
+    - name: Backend Unit Tests
+      id: backend_unit_tests
+      if: success() || steps.frontend_unit_tests.outcome == 'failure' #Run backend unit tests even if frontend tests fail
+      run: make test-backend-ci
+
+    #Need to get tests hitting API to work
+    # - name: Local e2e test
+    #   run: | 
+    #     make run > /dev/null 2>&1 & 
+    #     make test-e2e-ci
+
+    # - name: Infra Unit Tests
+    #   run: make test-infra
+
+    - uses: codecov/codecov-action@v2
+      if: always()
+      continue-on-error: true
+      with:
+        # token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+        files: ./backend/coverage.xml,./frontend/coverage/clover.xml
+        flags: unittests # optional
+        # name: codecov-umbrella # optional
+        fail_ci_if_error: true # optional (default = false)
+
+    - name: Build
+      run: make ci
+      env:
+        REACT_APP_DOMAIN: ${{ secrets.REACT_APP_DOMAIN }}
+
+    - name: Infra Diff
+      run: make synth
+      env:
+        REACT_APP_DOMAIN: ${{ secrets.REACT_APP_DOMAIN }}
+        REACT_APP_HOSTED_ZONE_NAME: ${{ secrets.REACT_APP_HOSTED_ZONE_NAME }}
+        REACT_APP_HOSTED_ZONE_ID: ${{ secrets.REACT_APP_HOSTED_ZONE_ID }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+
+    # - name: SonarCloud Scan
+    #   uses: sonarsource/sonarcloud-github-action@v1.6
+    #   env:
+    #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+
+
+  # This tests the process a first time user would go through to verify none of the initial setup steps were broken
+  test-first-time-use:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: checkout code
+      uses: actions/checkout@v2
+
+    - uses: satackey/action-docker-layer-caching@v0.0.11
+      # Ignore the failure of a step and avoid terminating the job.
+      continue-on-error: true
+
+    - name: Cache node modules
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }} #Include package lock in name so on change cache is invalidated
+        restore-keys: npm-
+
+    - name: Install
+      run: |
+        make install
+
+    # - name: Run
+    #   run: |
+    #     make run
+
+    # - name: Test
+    #   run: |
+    #     make test

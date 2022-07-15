@@ -1,0 +1,72 @@
+version: '3.6'
+services:
+  base:
+    build: .
+    image: base
+    stdin_open: true
+    tty: true    
+    command: ${COMPOSE_COMMAND:-bash}
+    working_dir: $PWD
+    env_file:
+      - configs.env
+    volumes:
+      - ~/.npm/:$HOME
+      - $PWD:$PWD
+      - ~/.aws/:/root/.aws:ro
+      - /var/run/docker.sock:/var/run/docker.sock #Needed so a docker container can be run from inside a docker container
+      # - /root/.docker/config.json:/root/.docker/config.json:ro
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build: .
+    image: base
+    stdin_open: true
+    tty: true    
+    command: ['make', "_run-frontend"]
+    working_dir: $PWD
+    env_file:
+      - configs.env
+    volumes:
+      - $PWD:$PWD
+      - ~/.aws/:/root/.aws:ro
+    ports:
+      - "3000:3000"
+
+  playwright:
+    image: base
+    volumes:
+      - .:/app
+    network_mode: "host"
+
+  dynamodb:
+    image: amazon/dynamodb-local
+    hostname: dynamodb-local
+    volumes:
+      - $PWD:$PWD
+    ports:
+      - "8000:8000"
+    networks:
+      - "backend"
+
+  sam:
+    image: base
+    command: ['/bin/bash', "./entrypoint.sh"]
+    environment:
+      - TZ=Etc/GMT
+      - SAM_CLI_TELEMETRY=false
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - $PWD:$PWD
+      - /var/run/docker.sock:/var/run/docker.sock #Needed so a docker container can be run from inside a docker container
+      - ~/.aws/:/root/.aws:ro
+    working_dir: $PWD
+    ports:
+      - "3001:3001"
+    networks:
+      - "backend"
+
+networks:
+  backend:
+    name: aws_backend
+    driver: bridge

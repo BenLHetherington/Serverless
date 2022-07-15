@@ -1,2 +1,7 @@
 requests
 boto3
+pandas
+openpyxl
+numpy
+math
+scipy
